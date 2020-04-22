@@ -37,14 +37,54 @@ def init_anno():
     categories = [
         {
             'id': 0,
-            'name': 'player',
+            'name': 'central_referee',
             'supercategory': 'person',
         },
         {
             'id': 1,
             'name': 'ball',
             'supercategory': 'sports',
-        }
+        },
+        {
+            'id': 2,
+            'name': 'activeplayer',
+            'supercategory': 'person',
+        },
+        {
+            'id': 0,
+            'name': 'nonplayer',
+            'supercategory': 'person',
+        },
+        {
+            'id': 4,
+            'name': 'upper_referee',
+            'supercategory': 'person',
+        },
+        {
+            'id': 5,
+            'name': 'lower_referee',
+            'supercategory': 'person',
+        },
+        {
+            'id': 6,
+            'name': 'goalkeeper_1',
+            'supercategory': 'person',
+        },
+        {
+            'id': 7,
+            'name': 'goalkeeper_2',
+            'supercategory': 'person',
+        },
+        {
+            'id': 8,
+            'name': 'team_1',
+            'supercategory': 'person',
+        },
+        {
+            'id': 9,
+            'name': 'team_2',
+            'supercategory': 'person',
+        },
     ]
 
     anno = {
@@ -162,8 +202,8 @@ def main(args):
                     if clid == 2:
                         continue
 
-                    if clid != 1:
-                        clid = 0
+#                    if clid != 1:
+#                        clid = 0
 
                     x, y = int(np.round((xc - w / 2) * imw)), int(np.round((yc - h / 2) * imh))
                     w, h = int(np.round(w * imw)), int(np.round(h * imh))
