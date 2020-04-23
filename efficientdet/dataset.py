@@ -50,6 +50,10 @@ class CocoDataset(Dataset):
             sample = self.transform(sample)
         return sample
 
+    @property
+    def n_ids(self):
+        return self.coco.dataset.get('info', {}).get('n_ids', 0)
+
     def load_image(self, image_index):
         image_info = self.coco.loadImgs(self.image_ids[image_index])[0]
         path = os.path.join(self.root_dir, self.set_name, image_info['file_name'])
@@ -61,7 +65,7 @@ class CocoDataset(Dataset):
     def load_annotations(self, image_index):
         # get ground truth annotations
         annotations_ids = self.coco.getAnnIds(imgIds=self.image_ids[image_index], iscrowd=False)
-        annotations = np.zeros((0, 5))
+        annotations = np.zeros((0, 6))
 
         # some images appear to miss annotations
         if len(annotations_ids) == 0:
@@ -75,9 +79,10 @@ class CocoDataset(Dataset):
             if a['bbox'][2] < 1 or a['bbox'][3] < 1:
                 continue
 
-            annotation = np.zeros((1, 5))
+            annotation = np.zeros((1, 6))
             annotation[0, :4] = a['bbox']
             annotation[0, 4] = self.coco_label_to_label(a['category_id'])
+            annotation[0, 5] = a['team_id']
             annotations = np.append(annotations, annotation, axis=0)
 
         # transform from [x, y, w, h] to [x1, y1, x2, y2]
@@ -104,13 +109,13 @@ def collater(data):
 
     if max_num_annots > 0:
 
-        annot_padded = torch.ones((len(annots), max_num_annots, 5)) * -1
+        annot_padded = torch.ones((len(annots), max_num_annots, 6)) * -1
 
         for idx, annot in enumerate(annots):
             if annot.shape[0] > 0:
                 annot_padded[idx, :annot.shape[0], :] = annot
     else:
-        annot_padded = torch.ones((len(annots), 1, 5)) * -1
+        annot_padded = torch.ones((len(annots), 1, 6)) * -1
 
     imgs = imgs.permute(0, 3, 1, 2)
 

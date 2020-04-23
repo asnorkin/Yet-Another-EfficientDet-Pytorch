@@ -25,15 +25,18 @@ def calc_iou(a, b):
 
 
 class FocalLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, embedding_size=0, n_ids=0):
         super(FocalLoss, self).__init__()
+        self.id_classifier = nn.Linear(embedding_size, n_ids) if n_ids > 0 else None
+        self.id_loss = nn.CrossEntropyLoss(ignore_index=-1)
 
-    def forward(self, classifications, regressions, anchors, annotations, **kwargs):
+    def forward(self, classifications, regressions, embeddings, anchors, annotations, **kwargs):
         alpha = 0.25
         gamma = 2.0
         batch_size = classifications.shape[0]
         classification_losses = []
         regression_losses = []
+        embeddings_losses = []
 
         anchor = anchors[0, :, :]  # assuming all image sizes are the same, which it is
         dtype = anchors.dtype
@@ -47,15 +50,18 @@ class FocalLoss(nn.Module):
 
             classification = classifications[j, :, :]
             regression = regressions[j, :, :]
+            embedding = embeddings[j, :, :]
 
             bbox_annotation = annotations[j]
             bbox_annotation = bbox_annotation[bbox_annotation[:, 4] != -1]
 
             if bbox_annotation.shape[0] == 0:
                 if torch.cuda.is_available():
+                    embeddings_losses.append(torch.tensor(0).to(dtype).cuda())
                     regression_losses.append(torch.tensor(0).to(dtype).cuda())
                     classification_losses.append(torch.tensor(0).to(dtype).cuda())
                 else:
+                    embeddings_losses.append(torch.tensor(0).to(dtype))
                     regression_losses.append(torch.tensor(0).to(dtype))
                     classification_losses.append(torch.tensor(0).to(dtype))
 
@@ -102,9 +108,18 @@ class FocalLoss(nn.Module):
 
             classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors.to(dtype), min=1.0))
 
-            if positive_indices.sum() > 0:
+            if num_positive_anchors > 0:
                 assigned_annotations = assigned_annotations[positive_indices, :]
 
+                # Embeddings
+                if self.id_classifier is not None:
+                    assigned_embedding = embedding[positive_indices]
+                    id_targets = assigned_annotations[:, -1].long()
+                    id_logits = self.id_classifier(assigned_embedding)
+                    emb_loss = self.id_loss(id_logits, id_targets)
+                    embeddings_losses.append(emb_loss.sum() / num_positive_anchors.to(dtype))
+
+                # Regression
                 anchor_widths_pi = anchor_widths[positive_indices]
                 anchor_heights_pi = anchor_heights[positive_indices]
                 anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
@@ -137,8 +152,10 @@ class FocalLoss(nn.Module):
                 regression_losses.append(regression_loss.mean())
             else:
                 if torch.cuda.is_available():
+                    embeddings_losses.append(torch.tensor(0).to(dtype).cuda())
                     regression_losses.append(torch.tensor(0).to(dtype).cuda())
                 else:
+                    embeddings_losses.append(torch.tensor(0).to(dtype))
                     regression_losses.append(torch.tensor(0).to(dtype))
 
         # debug
@@ -157,4 +174,5 @@ class FocalLoss(nn.Module):
             display(out, imgs, obj_list, imshow=False, imwrite=True)
 
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
-               torch.stack(regression_losses).mean(dim=0, keepdim=True)
+               torch.stack(regression_losses).mean(dim=0, keepdim=True), \
+               torch.stack(embeddings_losses).mean(dim=0, keepdim=True)

@@ -5,12 +5,12 @@ import math
 import torch
 from torch import nn
 
-from efficientdet.model import BiFPN, Regressor, Classifier, EfficientNet
+from efficientdet.model import BiFPN, Regressor, Classifier, EfficientNet, Embedder
 from efficientdet.utils import Anchors
 
 
 class EfficientDetBackbone(nn.Module):
-    def __init__(self, num_classes=80, compound_coef=0, load_weights=False, **kwargs):
+    def __init__(self, num_classes=80, compound_coef=0, embedding_size=16, load_weights=False, **kwargs):
         super(EfficientDetBackbone, self).__init__()
         self.compound_coef = compound_coef
 
@@ -44,6 +44,8 @@ class EfficientDetBackbone(nn.Module):
               for _ in range(self.fpn_cell_repeats[compound_coef])])
 
         self.num_classes = num_classes
+        self.embedder = Embedder(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
+                                 num_layers=self.box_class_repeats[self.compound_coef], embedding_size=embedding_size)
         self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
                                    num_layers=self.box_class_repeats[self.compound_coef])
         self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors,
@@ -67,11 +69,12 @@ class EfficientDetBackbone(nn.Module):
         features = (p3, p4, p5)
         features = self.bifpn(features)
 
+        embeddings = self.embedder(features)
         regression = self.regressor(features)
         classification = self.classifier(features)
         anchors = self.anchors(inputs, inputs.dtype)
 
-        return features, regression, classification, anchors
+        return features, embeddings, regression, classification, anchors
 
     def init_backbone(self, path):
         state_dict = torch.load(path)

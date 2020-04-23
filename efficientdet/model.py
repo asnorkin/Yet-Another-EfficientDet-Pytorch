@@ -1,3 +1,4 @@
+import torch.nn.functional as F
 import torch.nn as nn
 import torch
 from torchvision.ops.boxes import nms as nms_torch
@@ -311,7 +312,7 @@ class Regressor(nn.Module):
     def __init__(self, in_channels, num_anchors, num_layers, onnx_export=False):
         super(Regressor, self).__init__()
         self.num_layers = num_layers
-        self.num_layers = num_layers
+        self.num_anchors = num_anchors
 
         self.conv_list = nn.ModuleList(
             [SeparableConvBlock(in_channels, in_channels, norm=False, activation=False) for i in range(num_layers)])
@@ -376,6 +377,45 @@ class Classifier(nn.Module):
 
         feats = torch.cat(feats, dim=1)
         feats = feats.sigmoid()
+
+        return feats
+
+
+class Embedder(nn.Module):
+    """
+    modified by Zylo117
+    """
+
+    def __init__(self, in_channels, num_anchors, num_layers, embedding_size, onnx_export=False):
+        super(Embedder, self).__init__()
+        self.num_layers = num_layers
+        self.num_anchors = num_anchors
+        self.embedding_size = embedding_size
+
+        self.conv_list = nn.ModuleList(
+            [SeparableConvBlock(in_channels, in_channels, norm=False, activation=False) for i in range(num_layers)])
+        self.bn_list = nn.ModuleList(
+            [nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=1e-3) for i in range(num_layers)]) for j in
+             range(5)])
+        self.header = SeparableConvBlock(in_channels, num_anchors * embedding_size, norm=False, activation=False)
+        self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
+
+    def forward(self, inputs):
+        feats = []
+        for feat, bn_list in zip(inputs, self.bn_list):
+            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
+                feat = conv(feat)
+                feat = bn(feat)
+                feat = self.swish(feat)
+            feat = self.header(feat)
+
+            feat = feat.permute(0, 2, 3, 1)
+            feat = feat.contiguous().view(feat.shape[0], -1, self.embedding_size)
+
+            feats.append(feat)
+
+        feats = torch.cat(feats, dim=1)
+        feats = F.normalize(feats, dim=2)
 
         return feats
 
