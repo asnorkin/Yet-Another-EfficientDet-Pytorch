@@ -47,6 +47,7 @@ def get_args():
                                                                    ' very final stage then switch to \'sgd\'')
     parser.add_argument('--alpha', type=float, default=0.25)
     parser.add_argument('--gamma', type=float, default=1.5)
+    parser.add_argument('--embedding_size', type=int, default=16)
     parser.add_argument('--num_epochs', type=int, default=500)
     parser.add_argument('--val_interval', type=int, default=1, help='Number of epoches between valing phases')
     parser.add_argument('--save_interval', type=int, default=500, help='Number of steps between saving')
@@ -67,20 +68,20 @@ def get_args():
 
 
 class ModelWithLoss(nn.Module):
-    def __init__(self, model, debug=False):
+    def __init__(self, model, embedding_size=0, n_ids=0, debug=False):
         super().__init__()
-        self.criterion = FocalLoss()
+        self.criterion = FocalLoss(embedding_size, n_ids)
         self.model = model
         self.debug = debug
 
     def forward(self, imgs, annotations, obj_list=None):
-        _, regression, classification, anchors = self.model(imgs)
+        _, embeddings, regression, classification, anchors = self.model(imgs)
         if self.debug:
-            cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations,
-                                                imgs=imgs, obj_list=obj_list)
+            cls_loss, reg_loss, emb_loss = self.criterion(classification, regression, embeddings, anchors,
+                                                          annotations, imgs=imgs, obj_list=obj_list)
         else:
-            cls_loss, reg_loss = self.criterion(classification, regression, anchors, annotations)
-        return cls_loss, reg_loss
+            cls_loss, reg_loss, emb_loss = self.criterion(classification, regression, embeddings, anchors, annotations)
+        return cls_loss, reg_loss, emb_loss
 
 
 def train(opt):
@@ -124,7 +125,8 @@ def train(opt):
     val_generator = DataLoader(val_set, **val_params)
 
     model = EfficientDetBackbone(num_classes=len(params.obj_list), compound_coef=opt.compound_coef,
-                                 ratios=eval(params.anchors_ratios), scales=eval(params.anchors_scales))
+                                 embedding_size=opt.embedding_size, ratios=eval(params.anchors_ratios),
+                                 scales=eval(params.anchors_scales))
 
     # load last weights
     if opt.load_weights is not None:
@@ -178,7 +180,8 @@ def train(opt):
     writer = SummaryWriter(opt.log_path + f'/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}/')
 
     # warp the model with loss function, to reduce the memory usage on gpu0 and speedup
-    model = ModelWithLoss(model, debug=opt.debug)
+    model = ModelWithLoss(model, embedding_size=opt.embedding_size,
+                          n_ids=training_set.n_ids, debug=opt.debug)
 
     if params.num_gpus > 0:
         model = model.cuda()
@@ -227,11 +230,12 @@ def train(opt):
                     if ((iter + 1) % opt.accumulated_batches == 0) or (iter == len(training_generator) - 1):
                         optimizer.zero_grad()
 
-                    cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+                    cls_loss, reg_loss, emb_loss = model(imgs, annot, obj_list=params.obj_list)
                     cls_loss = cls_loss.mean()
                     reg_loss = reg_loss.mean()
+                    emb_loss = emb_loss.mean()
 
-                    loss = cls_loss + reg_loss
+                    loss = cls_loss + reg_loss + emb_loss
                     if loss == 0 or not torch.isfinite(loss):
                         continue
 
@@ -243,12 +247,14 @@ def train(opt):
                     epoch_loss.append(float(loss))
 
                     progress_bar.set_description(
-                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Total loss: {:.5f}'.format(
+                        'Step: {}. Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}.'
+                        ' Emb loss: {:.5f}. Total loss: {:.5f}'.format(
                             step, epoch, opt.num_epochs, iter + 1, num_iter_per_epoch, cls_loss.item(),
-                            reg_loss.item(), loss.item()))
+                            reg_loss.item(), emb_loss.item(), loss.item()))
                     writer.add_scalars('Loss', {'train': loss}, step)
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
+                    writer.add_scalars('Embedding_loss', {'train': emb_loss}, step)
 
                     # log learning_rate
                     current_lr = optimizer.param_groups[0]['lr']
@@ -270,6 +276,7 @@ def train(opt):
                 model.eval()
                 loss_regression_ls = []
                 loss_classification_ls = []
+                loss_embedding_ls = []
                 for iter, data in enumerate(val_generator):
                     with torch.no_grad():
                         imgs = data['img']
@@ -279,27 +286,32 @@ def train(opt):
                             imgs = imgs.cuda()
                             annot = annot.cuda()
 
-                        cls_loss, reg_loss = model(imgs, annot, obj_list=params.obj_list)
+                        cls_loss, reg_loss, emb_loss = model(imgs, annot, obj_list=params.obj_list)
                         cls_loss = cls_loss.mean()
                         reg_loss = reg_loss.mean()
+                        emb_loss = emb_loss.mean()
 
-                        loss = cls_loss + reg_loss
+                        loss = cls_loss + reg_loss + emb_loss
                         if loss == 0 or not torch.isfinite(loss):
                             continue
 
                         loss_classification_ls.append(cls_loss.item())
                         loss_regression_ls.append(reg_loss.item())
+                        loss_embedding_ls.append(emb_loss.item())
 
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
-                loss = cls_loss + reg_loss
+                emb_loss = np.mean(loss_embedding_ls)
+                loss = cls_loss + reg_loss + emb_loss
 
                 print(
-                    'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. Total loss: {:1.5f}'.format(
-                        epoch, opt.num_epochs, cls_loss, reg_loss, loss))
+                    'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. '
+                    'Embedding loss: {:1.5f}. Total loss: {:1.5f}'.format(
+                        epoch, opt.num_epochs, cls_loss, reg_loss, emb_loss, loss))
                 writer.add_scalars('Loss', {'val': loss}, step)
                 writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
                 writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
+                writer.add_scalars('Embedding_loss',  {'val': emb_loss}, step)
 
                 if loss + opt.es_min_delta < best_loss:
                     best_loss = loss

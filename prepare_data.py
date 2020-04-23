@@ -214,8 +214,12 @@ def main(args):
                         'image_id': image_id,
                         'bbox': [x, y, w, h],
                         'category_id': clid,
+                        'team_id': source_index * len(result[key]['categories']) + clid,
                         'id': label_id,
                     })
+
+    for key in ['train', 'val']:
+        result[key]['info'] = {'n_ids': len(data_sources) * len(result[key]['categories'])}
 
     with open(osp.join(args.dataset_dir, 'annotations', 'instances_train.json'), 'w+') as outf:
         json.dump(result['train'], outf)
