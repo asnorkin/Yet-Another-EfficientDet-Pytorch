@@ -51,7 +51,7 @@ def init_anno():
             'supercategory': 'person',
         },
         {
-            'id': 0,
+            'id': 3,
             'name': 'nonplayer',
             'supercategory': 'person',
         },
