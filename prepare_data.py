@@ -36,52 +36,52 @@ def config_data_sources(args):
 def init_anno():
     categories = [
         {
-            'id': 0,
+            'id': 1,
             'name': 'central_referee',
             'supercategory': 'person',
         },
         {
-            'id': 1,
+            'id': 2,
             'name': 'ball',
             'supercategory': 'sports',
         },
         {
-            'id': 2,
+            'id': 3,
             'name': 'activeplayer',
             'supercategory': 'person',
         },
         {
-            'id': 3,
+            'id': 4,
             'name': 'nonplayer',
             'supercategory': 'person',
         },
         {
-            'id': 4,
+            'id': 5,
             'name': 'upper_referee',
             'supercategory': 'person',
         },
         {
-            'id': 5,
+            'id': 6,
             'name': 'lower_referee',
             'supercategory': 'person',
         },
         {
-            'id': 6,
+            'id': 7,
             'name': 'goalkeeper_1',
             'supercategory': 'person',
         },
         {
-            'id': 7,
+            'id': 8,
             'name': 'goalkeeper_2',
             'supercategory': 'person',
         },
         {
-            'id': 8,
+            'id': 9,
             'name': 'team_1',
             'supercategory': 'person',
         },
         {
-            'id': 9,
+            'id': 10,
             'name': 'team_2',
             'supercategory': 'person',
         },
