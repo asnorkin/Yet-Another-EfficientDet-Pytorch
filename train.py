@@ -37,6 +37,7 @@ def get_args():
     parser.add_argument('-c', '--compound_coef', type=int, default=0, help='coefficients of efficientdet')
     parser.add_argument('-n', '--num_workers', type=int, default=12, help='num_workers of dataloader')
     parser.add_argument('--batch_size', type=int, default=12, help='The number of images per batch among all devices')
+    parser.add_argument('--accumulated_batches', type=int, default=0, help='Effective batch_size=batch_size * accumulated_batches')
     parser.add_argument('--head_only', type=bool, default=False,
                         help='whether finetunes only the regressor and the classifier, '
                              'useful in early stage convergence or small/easy dataset')
@@ -226,7 +227,9 @@ def train(opt):
                         imgs = imgs.cuda()
                         annot = annot.cuda()
 
-                    optimizer.zero_grad()
+                    if ((iter + 1) % opt.accumulated_batches == 0) or (iter == len(training_generator) - 1):
+                        optimizer.zero_grad()
+
                     cls_loss, reg_loss, emb_loss = model(imgs, annot, obj_list=params.obj_list)
                     cls_loss = cls_loss.mean()
                     reg_loss = reg_loss.mean()
@@ -238,7 +241,8 @@ def train(opt):
 
                     loss.backward()
                     # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.1)
-                    optimizer.step()
+                    if ((iter + 1) % opt.accumulated_batches == 0) or (iter == len(training_generator) - 1):
+                        optimizer.step()
 
                     epoch_loss.append(float(loss))
 
