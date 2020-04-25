@@ -142,7 +142,7 @@ def train(opt):
             last_step = 0
 
         try:
-            ckpt = torch.load(weights_path)
+            ckpt = torch.load(weights_path, map_location='cuda' if params.num_gpus > 0 else 'cpu')
             model_dict = ckpt['model'] if 'model' in ckpt else ckpt
             ret = model.load_state_dict(model_dict, strict=False)
         except RuntimeError as e:
