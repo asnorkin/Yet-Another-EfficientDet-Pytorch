@@ -4,6 +4,7 @@
 
 import datetime
 import os
+import os.path as osp
 import argparse
 import traceback
 
@@ -37,7 +38,7 @@ def get_args():
     parser.add_argument('-c', '--compound_coef', type=int, default=0, help='coefficients of efficientdet')
     parser.add_argument('-n', '--num_workers', type=int, default=12, help='num_workers of dataloader')
     parser.add_argument('--batch_size', type=int, default=12, help='The number of images per batch among all devices')
-    parser.add_argument('--accumulated_batches', type=int, default=0, help='Effective batch_size=batch_size * accumulated_batches')
+    parser.add_argument('--accumulated_batches', type=int, default=1, help='Effective batch_size=batch_size * accumulated_batches')
     parser.add_argument('--head_only', type=bool, default=False,
                         help='whether finetunes only the regressor and the classifier, '
                              'useful in early stage convergence or small/easy dataset')
@@ -62,6 +63,7 @@ def get_args():
     parser.add_argument('--saved_path', type=str, default='logs/')
     parser.add_argument('--debug', type=bool, default=False, help='whether visualize the predicted boxes of trainging, '
                                                                   'the output images will be in test/')
+    parser.add_argument('--experiment', type=str, default=None)
 
     args = parser.parse_args()
     return args
@@ -140,7 +142,9 @@ def train(opt):
             last_step = 0
 
         try:
-            ret = model.load_state_dict(torch.load(weights_path), strict=False)
+            ckpt = torch.load(weights_path)
+            model_dict = ckpt['model'] if 'model' in ckpt else ckpt
+            ret = model.load_state_dict(model_dict, strict=False)
         except RuntimeError as e:
             print(f'[Warning] Ignoring {e}')
             print(
@@ -177,11 +181,14 @@ def train(opt):
     else:
         use_sync_bn = False
 
-    writer = SummaryWriter(opt.log_path + f'/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}/')
+    experiment = opt.experiment or f'{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}'
+    writer = SummaryWriter(osp.join(opt.log_path, experiment))
 
     # warp the model with loss function, to reduce the memory usage on gpu0 and speedup
     model = ModelWithLoss(model, embedding_size=opt.embedding_size,
                           n_ids=training_set.n_ids, debug=opt.debug)
+    if 'emb_clf' in ckpt:
+        model.criterion.id_classifier.load_state_dict(ckpt['emb_clf'])
 
     if params.num_gpus > 0:
         model = model.cuda()
@@ -235,7 +242,7 @@ def train(opt):
                     reg_loss = reg_loss.mean()
                     emb_loss = emb_loss.mean()
 
-                    loss = cls_loss + reg_loss + emb_loss
+                    loss = (cls_loss + reg_loss + emb_loss) / opt.accumulated_batches
                     if loss == 0 or not torch.isfinite(loss):
                         continue
 
@@ -332,10 +339,15 @@ def train(opt):
 
 
 def save_checkpoint(model, name):
+    ckpt = dict()
     if isinstance(model, CustomDataParallel):
-        torch.save(model.module.model.state_dict(), os.path.join(opt.saved_path, name))
+        ckpt['model'] = model.module.model.state_dict()
+        ckpt['emb_clf'] = model.module.criterion.id_classifier.state_dict()
     else:
-        torch.save(model.model.state_dict(), os.path.join(opt.saved_path, name))
+        ckpt['model'] = model.model.state_dict()
+        ckpt['emb_clf'] = model.criterion.id_classifier.state_dict()
+
+    torch.save(ckpt, os.path.join(opt.saved_path, name))
 
 
 if __name__ == '__main__':

@@ -76,7 +76,7 @@ def evaluate_coco(img_path, set_name, image_ids, coco, model, threshold=0.05):
             x = x.float()
 
         x = x.unsqueeze(0).permute(0, 3, 1, 2)
-        features, regression, classification, anchors = model(x)
+        features, embeddings, regression, classification, anchors = model(x)
 
         preds = postprocess(x,
                             anchors, regression, classification,
@@ -153,7 +153,8 @@ if __name__ == '__main__':
     if override_prev_results or not os.path.exists(f'{SET_NAME}_bbox_results.json'):
         model = EfficientDetBackbone(compound_coef=compound_coef, num_classes=len(obj_list),
                                      ratios=eval(params['anchors_ratios']), scales=eval(params['anchors_scales']))
-        model.load_state_dict(torch.load(weights_path, map_location=torch.device('cpu')))
+        ckpt = torch.load(weights_path, map_location=torch.device('cpu'))        
+        model.load_state_dict(ckpt['model'] if 'model' in ckpt else ckpt)
         model.requires_grad_(False)
         model.eval()
 

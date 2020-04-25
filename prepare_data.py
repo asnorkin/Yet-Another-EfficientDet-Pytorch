@@ -16,6 +16,7 @@ def config_data_sources(args):
         'inter_autofollow',
         'inter_panoramic',
         'lec_juv_autofollow',
+        'lec_juv_panoramic',
         'mci-tot_autofollow',
         'mci_autofollow',
         'real_barca_autofollow',
@@ -112,8 +113,8 @@ def config():
 def read(source):
     image_prefix = osp.join(source['images_dir'], source['prefix'])
     image_files = glob.glob(image_prefix + '*.jpg')
-    print('Found {} images with prefix {}'.format(len(image_files), source['prefix']))
 
+    objects_count = 0
     image_indices = list(map(lambda x: int(x[len(image_prefix):].split('.')[0]), image_files))
     for index in image_indices:
         image_file = '{}{}.jpg'.format(image_prefix, index)
@@ -128,6 +129,9 @@ def read(source):
                     label.append([int(line[0])] + list(map(float, line[1:])))
 
             yield image, label, index
+            objects_count += 1
+
+    print('Read {} objects with prefix {}'.format(objects_count, source['prefix']))
 
 
 def split(full_image, full_label, n_splits=None, min_overlap=40):
@@ -174,9 +178,15 @@ def main(args):
         'val': init_anno(),
     }
 
+    match_team_id_base = dict()
+
     image_id, label_id = -1, -1
     data_sources = config_data_sources(args)
     for source_index, source in enumerate(data_sources):
+        match = source['prefix'][:-1].rpartition('_')[0]
+        if match not in match_team_id_base:
+            match_team_id_base[match] = len(match_team_id_base) * len(result['train']['categories'])
+
         for full_image, full_label, full_index in read(source):
             val = np.random.binomial(1, args.val_size, size=1).astype(np.bool)[0]
             key = 'val' if val else 'train'
@@ -199,11 +209,11 @@ def main(args):
                 })
 
                 for clid, xc, yc, w, h in split_label:
-                    if clid == 2:
+                    if clid == 2 or clid == 1:
                         continue
 
-#                    if clid != 1:
-#                        clid = 0
+                    team_id = match_team_id_base[match] + clid
+                    clid = 0
 
                     x, y = int(np.round((xc - w / 2) * imw)), int(np.round((yc - h / 2) * imh))
                     w, h = int(np.round(w * imw)), int(np.round(h * imh))
@@ -213,13 +223,14 @@ def main(args):
                         'iscrowd': 0,
                         'image_id': image_id,
                         'bbox': [x, y, w, h],
-                        'category_id': clid,
-                        'team_id': source_index * len(result[key]['categories']) + clid,
+                        'area': w * h,
+                        'category_id': clid + 1,
+                        'team_id': team_id,
                         'id': label_id,
                     })
 
     for key in ['train', 'val']:
-        result[key]['info'] = {'n_ids': len(data_sources) * len(result[key]['categories'])}
+        result[key]['info'] = {'n_ids': len(match_team_id_base) * len(result[key]['categories'])}
 
     with open(osp.join(args.dataset_dir, 'annotations', 'instances_train.json'), 'w+') as outf:
         json.dump(result['train'], outf)
