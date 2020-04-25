@@ -165,7 +165,8 @@ class FocalLoss(nn.Module):
             clipBoxes = ClipBoxes()
             obj_list = kwargs.get('obj_list', None)
             out = postprocess(imgs.detach(),
-                              torch.stack([anchors[0]] * imgs.shape[0], 0).detach(), regressions.detach(), classifications.detach(),
+                              torch.stack([anchors[0]] * imgs.shape[0], 0).detach(),
+                              regressions.detach(), classifications.detach(), embeddings.detach(),
                               regressBoxes, clipBoxes,
                               0.5, 0.3)
             imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()

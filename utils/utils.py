@@ -87,7 +87,7 @@ def preprocess_video(*frame_from_video, max_size=512, mean=(0.406, 0.456, 0.485)
     return ori_imgs, framed_imgs, framed_metas
 
 
-def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes, threshold, iou_threshold):
+def postprocess(x, anchors, regression, classification, embeddings, regressBoxes, clipBoxes, threshold, iou_threshold):
     transformed_anchors = regressBoxes(anchors, regression)
     transformed_anchors = clipBoxes(transformed_anchors, x)
     scores = torch.max(classification, dim=2, keepdim=True)[0]
@@ -99,27 +99,32 @@ def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes,
                 'rois': np.array(()),
                 'class_ids': np.array(()),
                 'scores': np.array(()),
+                'embeddings': np.array(()),
             })
 
         classification_per = classification[i, scores_over_thresh[i, :], ...].permute(1, 0)
         transformed_anchors_per = transformed_anchors[i, scores_over_thresh[i, :], ...]
         scores_per = scores[i, scores_over_thresh[i, :], ...]
+        embeddings_per = embeddings[i, scores_over_thresh[i, :], ...]
         anchors_nms_idx = nms(transformed_anchors_per, scores_per[:, 0], iou_threshold=iou_threshold)
 
         if anchors_nms_idx.shape[0] != 0:
             scores_, classes_ = classification_per[:, anchors_nms_idx].max(dim=0)
             boxes_ = transformed_anchors_per[anchors_nms_idx, :]
+            embeddings_ = embeddings_per[anchors_nms_idx, :]
 
             out.append({
                 'rois': boxes_.cpu().numpy(),
                 'class_ids': classes_.cpu().numpy(),
                 'scores': scores_.cpu().numpy(),
+                'embeddings': embeddings_.cpu().numpy(),
             })
         else:
             out.append({
                 'rois': np.array(()),
                 'class_ids': np.array(()),
                 'scores': np.array(()),
+                'embeddings': np.array(()),
             })
 
     return out
