@@ -61,8 +61,7 @@ class Anchors(nn.Module):
         super().__init__()
         self.anchor_scale = anchor_scale
 
-        if pyramid_levels is None:
-            self.pyramid_levels = [3, 4, 5, 6, 7]
+        self.pyramid_levels = pyramid_levels or [3, 4, 5, 6, 7]
 
         self.strides = kwargs.get('strides', [2 ** x for x in self.pyramid_levels])
         self.scales = np.array(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))

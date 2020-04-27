@@ -457,7 +457,7 @@ class EfficientNet(nn.Module):
                 feature_maps.append(x)
             last_x = x
         del last_x
-        return feature_maps[1:]
+        return feature_maps
 
 
 if __name__ == '__main__':
