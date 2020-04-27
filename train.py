@@ -298,7 +298,7 @@ def train(opt):
                         reg_loss = reg_loss.mean()
                         emb_loss = emb_loss.mean()
 
-                        loss = cls_loss + reg_loss + emb_loss
+                        loss = (cls_loss + reg_loss + emb_loss) / opt.accumulated_batches
                         if loss == 0 or not torch.isfinite(loss):
                             continue
 
