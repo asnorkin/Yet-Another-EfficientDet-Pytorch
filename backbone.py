@@ -24,7 +24,8 @@ class EfficientDetBackbone(nn.Module):
         self.num_scales = len(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
         conv_channel_coef = {
             # the channels of P3/P4/P5.
-            0: [40, 112, 320],
+            # 0: [40, 112, 320],
+            0: [16, 24, 40],
             1: [40, 112, 320],
             2: [48, 120, 352],
             3: [48, 136, 384],
@@ -52,7 +53,8 @@ class EfficientDetBackbone(nn.Module):
                                      num_classes=num_classes,
                                      num_layers=self.box_class_repeats[self.compound_coef])
 
-        self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], **kwargs)
+        pyramid_levels = [1, 2, 3, 4, 5]
+        self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], pyramid_levels=pyramid_levels, **kwargs)
 
         self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
 
@@ -64,9 +66,9 @@ class EfficientDetBackbone(nn.Module):
     def forward(self, inputs):
         max_size = inputs.shape[-1]
 
-        _, p3, p4, p5 = self.backbone_net(inputs)
+        _p1, _p2, p3, p4, p5 = self.backbone_net(inputs)
 
-        features = (p3, p4, p5)
+        features = (_p1, _p2, p3)
         features = self.bifpn(features)
 
         embeddings = self.embedder(features)
