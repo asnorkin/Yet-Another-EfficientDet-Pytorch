@@ -24,6 +24,53 @@ def calc_iou(a, b):
     return IoU
 
 
+def bbox_ciou(box1, box2, loss='ciou'):
+    """
+    Returns the CIoU of two bounding boxes
+    """
+    N, M = len(box1), len(box2)
+    b1_x1, b1_y1, b1_x2, b1_y2 = box1[:, 0], box1[:, 1], box1[:, 2], box1[:, 3]
+    b2_x1, b2_y1, b2_x2, b2_y2 = box2[:, 0], box2[:, 1], box2[:, 2], box2[:, 3]
+
+    # get the coordinates of the intersection rectangle
+    inter_rect_x1 = torch.max(b1_x1.unsqueeze(1), b2_x1)
+    inter_rect_y1 = torch.max(b1_y1.unsqueeze(1), b2_y1)
+    inter_rect_x2 = torch.min(b1_x2.unsqueeze(1), b2_x2)
+    inter_rect_y2 = torch.min(b1_y2.unsqueeze(1), b2_y2)
+
+    # Intersection area
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1, 0) * torch.clamp(inter_rect_y2 - inter_rect_y1, 0)
+
+    # Union Area
+    b1_area = ((b1_x2 - b1_x1) * (b1_y2 - b1_y1)).view(-1, 1).expand(N, M)
+    b2_area = ((b2_x2 - b2_x1) * (b2_y2 - b2_y1)).view(1, -1).expand(N, M)
+
+    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
+    outer_rect_x1 = torch.min(b1_x1.unsqueeze(1), b2_x1)
+    outer_rect_y1 = torch.min(b1_y1.unsqueeze(1), b2_y1)
+    outer_rect_x2 = torch.max(b1_x2.unsqueeze(1), b2_x2)
+    outer_rect_y2 = torch.max(b1_y2.unsqueeze(1), b2_y2)
+    outer_rect_diag = (outer_rect_x2 - outer_rect_x1) ** 2 + (outer_rect_y2 - outer_rect_y1) ** 2
+
+    b1_w, b1_h = b1_x2 - b1_x1, b1_y2 - b1_y1
+    b2_w, b2_h = b2_x2 - b2_x1, b2_y2 - b2_y1
+    b1_xc, b1_yc = b1_x1 + b1_w / 2, b1_y1 + b1_h / 2
+    b2_xc, b2_yc = b2_x1 + b2_w/ 2, b2_y1 + b2_h / 2
+    centers_dist = (b1_xc.unsqueeze(1) - b2_xc) ** 2 + (b1_yc.unsqueeze(1) - b2_yc) ** 2
+    u = centers_dist / outer_rect_diag
+
+    b1_atan = torch.atan(b1_w / b1_h).view(-1, 1).expand(N, M)
+    b2_atan = torch.atan(b2_w / b2_h).view(1, -1).expand(N, M)
+    arctan = b2_atan - b1_atan
+    v = torch.pow(arctan / (np.pi / 2), 2)
+    alpha = v / (1 - iou + v + 1e-8)
+    ciou = iou - u - alpha * v
+    ciou = torch.clamp(ciou, min=-1, max=1.)
+
+    return iou, ciou
+
+
 class FocalLoss(nn.Module):
     def __init__(self, embedding_size=0, n_ids=0):
         super(FocalLoss, self).__init__()
@@ -125,31 +172,48 @@ class FocalLoss(nn.Module):
                 anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
                 anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
 
-                gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
-                gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
-                gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
-                gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
+                # Smoothed L1
+                # gt_widths = assigned_annotations[:, 2] - assigned_annotations[:, 0]
+                # gt_heights = assigned_annotations[:, 3] - assigned_annotations[:, 1]
+                # gt_ctr_x = assigned_annotations[:, 0] + 0.5 * gt_widths
+                # gt_ctr_y = assigned_annotations[:, 1] + 0.5 * gt_heights
+                #
+                # # efficientdet style
+                # gt_widths = torch.clamp(gt_widths, min=1)
+                # gt_heights = torch.clamp(gt_heights, min=1)
+                #
+                # targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
+                # targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
+                # targets_dw = torch.log(gt_widths / anchor_widths_pi)
+                # targets_dh = torch.log(gt_heights / anchor_heights_pi)
+                #
+                # targets = torch.stack((targets_dy, targets_dx, targets_dh, targets_dw))
+                # targets = targets.t()
+                #
+                # regression_diff = torch.abs(targets - regression[positive_indices, :])
+                #
+                # regression_loss = torch.where(
+                #     torch.le(regression_diff, 1.0 / 9.0),
+                #     0.5 * 9.0 * torch.pow(regression_diff, 2),
+                #     regression_diff - 0.5 / 9.0
+                # )
+                # regression_losses.append(regression_loss.mean())
 
-                # efficientdet style
-                gt_widths = torch.clamp(gt_widths, min=1)
-                gt_heights = torch.clamp(gt_heights, min=1)
+                # Regression CIoU
+                assigned_regression = regression[positive_indices, :]
+                w = assigned_regression[:, 3].exp() * anchor_widths_pi
+                h = assigned_regression[:, 2].exp() * anchor_heights_pi
 
-                targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
-                targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
-                targets_dw = torch.log(gt_widths / anchor_widths_pi)
-                targets_dh = torch.log(gt_heights / anchor_heights_pi)
+                y_centers = assigned_regression[:, 0] * anchor_heights_pi + anchor_ctr_y_pi
+                x_centers = assigned_regression[:, 1] * anchor_widths_pi + anchor_ctr_x_pi
 
-                targets = torch.stack((targets_dy, targets_dx, targets_dh, targets_dw))
-                targets = targets.t()
+                ymin, ymax = y_centers - h / 2., y_centers + h / 2.
+                xmin, xmax = x_centers - w / 2., x_centers + w / 2.
+                assigned_regression = torch.stack([xmin, ymin, xmax, ymax], dim=1)
+                iou, ciou = bbox_ciou(assigned_regression, assigned_annotations[:, :4])
+                ciou_loss = 1. - torch.mean(torch.diag(ciou))
+                regression_losses.append(ciou_loss)
 
-                regression_diff = torch.abs(targets - regression[positive_indices, :])
-
-                regression_loss = torch.where(
-                    torch.le(regression_diff, 1.0 / 9.0),
-                    0.5 * 9.0 * torch.pow(regression_diff, 2),
-                    regression_diff - 0.5 / 9.0
-                )
-                regression_losses.append(regression_loss.mean())
             else:
                 if torch.cuda.is_available():
                     embeddings_losses.append(torch.tensor(0).to(dtype).cuda())
