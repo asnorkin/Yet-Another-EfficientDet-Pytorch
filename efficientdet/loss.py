@@ -108,10 +108,12 @@ class FocalLoss(nn.Module):
                     embeddings_losses.append(torch.tensor(0).to(dtype).cuda())
                     regression_losses.append(torch.tensor(0).to(dtype).cuda())
                     classification_losses.append(torch.tensor(0).to(dtype).cuda())
+                    ious.append(torch.tensor(1).to(dtype).cuda())
                 else:
                     embeddings_losses.append(torch.tensor(0).to(dtype))
                     regression_losses.append(torch.tensor(0).to(dtype))
                     classification_losses.append(torch.tensor(0).to(dtype))
+                    ious.append(torch.tensor(1).to(dtype))
 
                 continue
 
@@ -220,9 +222,11 @@ class FocalLoss(nn.Module):
                 if torch.cuda.is_available():
                     embeddings_losses.append(torch.tensor(0).to(dtype).cuda())
                     regression_losses.append(torch.tensor(0).to(dtype).cuda())
+                    ious.append(torch.tensor(1).to(dtype).cuda())
                 else:
                     embeddings_losses.append(torch.tensor(0).to(dtype))
                     regression_losses.append(torch.tensor(0).to(dtype))
+                    ious.append(torch.tensor(1).to(dtype))
 
         # debug
         imgs = kwargs.get('imgs', None)
