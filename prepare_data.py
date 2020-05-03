@@ -209,11 +209,12 @@ def main(args):
                 })
 
                 for clid, xc, yc, w, h in split_label:
-                    if clid == 2 or clid == 1:
+                    if clid == 2:
                         continue
 
                     team_id = match_team_id_base[match] + clid
-                    clid = 0
+                    if clid != 1:
+                        clid = 0
 
                     x, y = int(np.round((xc - w / 2) * imw)), int(np.round((yc - h / 2) * imh))
                     w, h = int(np.round(w * imw)), int(np.round(h * imh))
