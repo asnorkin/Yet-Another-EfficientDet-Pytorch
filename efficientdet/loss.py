@@ -84,6 +84,7 @@ class FocalLoss(nn.Module):
         classification_losses = []
         regression_losses = []
         embeddings_losses = []
+        ious = []
 
         anchor = anchors[0, :, :]  # assuming all image sizes are the same, which it is
         dtype = anchors.dtype
@@ -213,6 +214,7 @@ class FocalLoss(nn.Module):
                 iou, ciou = bbox_ciou(assigned_regression, assigned_annotations[:, :4])
                 ciou_loss = 1. - torch.mean(torch.diag(ciou))
                 regression_losses.append(ciou_loss)
+                ious.append(torch.mean(torch.diag(iou)))
 
             else:
                 if torch.cuda.is_available():
@@ -240,4 +242,5 @@ class FocalLoss(nn.Module):
 
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), \
                torch.stack(regression_losses).mean(dim=0, keepdim=True), \
-               torch.stack(embeddings_losses).mean(dim=0, keepdim=True)
+               torch.stack(embeddings_losses).mean(dim=0, keepdim=True), \
+               torch.stack(ious).mean(dim=0, keepdim=True)

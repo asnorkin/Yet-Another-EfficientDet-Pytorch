@@ -79,11 +79,12 @@ class ModelWithLoss(nn.Module):
     def forward(self, imgs, annotations, obj_list=None):
         _, embeddings, regression, classification, anchors = self.model(imgs)
         if self.debug:
-            cls_loss, reg_loss, emb_loss = self.criterion(classification, regression, embeddings, anchors,
-                                                          annotations, imgs=imgs, obj_list=obj_list)
+            cls_loss, reg_loss, emb_loss, iou = self.criterion(classification, regression, embeddings, anchors,
+                                                               annotations, imgs=imgs, obj_list=obj_list)
         else:
-            cls_loss, reg_loss, emb_loss = self.criterion(classification, regression, embeddings, anchors, annotations)
-        return cls_loss, reg_loss, emb_loss
+            cls_loss, reg_loss, emb_loss, iou = self.criterion(classification, regression, embeddings,
+                                                               anchors, annotations)
+        return cls_loss, reg_loss, emb_loss, iou
 
 
 def train(opt):
@@ -237,10 +238,11 @@ def train(opt):
                     if ((iter + 1) % opt.accumulated_batches == 0) or (iter == len(training_generator) - 1):
                         optimizer.zero_grad()
 
-                    cls_loss, reg_loss, emb_loss = model(imgs, annot, obj_list=params.obj_list)
+                    cls_loss, reg_loss, emb_loss, iou = model(imgs, annot, obj_list=params.obj_list)
                     cls_loss = cls_loss.mean()
                     reg_loss = reg_loss.mean()
                     emb_loss = emb_loss.mean()
+                    iou = iou.mean()
 
                     loss = (cls_loss + reg_loss + emb_loss) / opt.accumulated_batches
                     if loss == 0 or not torch.isfinite(loss):
@@ -262,6 +264,7 @@ def train(opt):
                     writer.add_scalars('Regression_loss', {'train': reg_loss}, step)
                     writer.add_scalars('Classfication_loss', {'train': cls_loss}, step)
                     writer.add_scalars('Embedding_loss', {'train': emb_loss}, step)
+                    writer.add_scalars('IoU', {'train': iou}, step)
 
                     # log learning_rate
                     current_lr = optimizer.param_groups[0]['lr']
@@ -284,6 +287,7 @@ def train(opt):
                 loss_regression_ls = []
                 loss_classification_ls = []
                 loss_embedding_ls = []
+                iou_ls = []
                 for iter, data in enumerate(val_generator):
                     with torch.no_grad():
                         imgs = data['img']
@@ -293,10 +297,11 @@ def train(opt):
                             imgs = imgs.cuda()
                             annot = annot.cuda()
 
-                        cls_loss, reg_loss, emb_loss = model(imgs, annot, obj_list=params.obj_list)
+                        cls_loss, reg_loss, emb_loss, iou = model(imgs, annot, obj_list=params.obj_list)
                         cls_loss = cls_loss.mean()
                         reg_loss = reg_loss.mean()
                         emb_loss = emb_loss.mean()
+                        iou = iou.mean()
 
                         loss = (cls_loss + reg_loss + emb_loss) / opt.accumulated_batches
                         if loss == 0 or not torch.isfinite(loss):
@@ -305,11 +310,13 @@ def train(opt):
                         loss_classification_ls.append(cls_loss.item())
                         loss_regression_ls.append(reg_loss.item())
                         loss_embedding_ls.append(emb_loss.item())
+                        iou_ls.append(iou.item())
 
                 cls_loss = np.mean(loss_classification_ls)
                 reg_loss = np.mean(loss_regression_ls)
                 emb_loss = np.mean(loss_embedding_ls)
                 loss = cls_loss + reg_loss + emb_loss
+                iou = np.mean(iou_ls)
 
                 print(
                     'Val. Epoch: {}/{}. Classification loss: {:1.5f}. Regression loss: {:1.5f}. '
@@ -319,6 +326,7 @@ def train(opt):
                 writer.add_scalars('Regression_loss', {'val': reg_loss}, step)
                 writer.add_scalars('Classfication_loss', {'val': cls_loss}, step)
                 writer.add_scalars('Embedding_loss',  {'val': emb_loss}, step)
+                writer.add_scalars('IoU', {'val': iou}, step)
 
                 if loss + opt.es_min_delta < best_loss:
                     best_loss = loss
